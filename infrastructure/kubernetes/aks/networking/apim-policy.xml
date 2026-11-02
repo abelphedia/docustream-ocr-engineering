@@ -1,0 +1,30 @@
+<policies>
+    <inbound>
+        <base />
+        <choose>
+            <!-- If no JWT is provided, ensure a valid Subscription Key is present -->
+            <when condition="@(!context.Request.Headers.ContainsKey("Authorization"))">
+                <!-- APIM automatically validates the Ocp-Apim-Subscription-Key header 
+                     if the Product requires a subscription. -->
+            </when>
+            <otherwise>
+                <!-- If Authorization header IS present, validate the JWT -->
+                <validate-jwt header-name="Authorization" failed-validation-httpcode="401">
+                    <openid-config url="https://login.microsoftonline.com/{tenant-id}/v2.0/.well-known/openid-configuration" />
+                </validate-jwt>
+            </otherwise>
+        </choose>
+        
+        <!-- Rate limiting based on the Subscription ID or Client IP -->
+        <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
