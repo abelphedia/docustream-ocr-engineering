@@ -1,0 +1,13 @@
+DocuStream OCR Engineering
+
+This repository contains material adapted from the Neural Maze
+production-ocr-course repository:
+https://github.com/neural-maze/production-ocr-course
+
+The source repository identifies its project license as Apache License 2.0.
+Upstream-derived source files and images remain subject to their applicable
+license and notices. This repository adds a new structure, documentation,
+and Mermaid diagrams by Abel Adamu Buba. The new diagrams describe the
+implemented system and are not copies of the upstream image diagrams.
+
+This notice is for attribution and does not modify the applicable license.
