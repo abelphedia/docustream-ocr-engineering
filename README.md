@@ -19,69 +19,79 @@ The repository also includes a separate synchronous Rust document gateway. It se
 These diagrams were written for this repository from the implemented API routes, Redis task fields, worker behavior, and deployment manifests.
 
 ```mermaid
-flowchart LR
-    Client[Client or application] -->|multipart file: POST /process| API[Rust Axum API\nport 5000]
-    APIM[Optional API gateway] --> API
-    API -->|HSET task metadata and file data| Task[(Redis task hash)]
-    API -->|LPUSH task ID| Queue[(Redis list: ocr_tasks)]
-    API -->|202 + task_id| Client
+flowchart TB
+    subgraph USERS[People and tools]
+        CLIENT[Web app or command line client]
+        ASSISTANT[AI assistant]
+        MCP[MCP server]
+        ASSISTANT --> MCP
+    end
 
-    Queue -->|BRPOP task ID| Worker[Python worker\nGLM-OCR SDK]
-    Task -->|Read payload and update status| Worker
-    Worker -->|Layout and visual recognition requests| Model[vLLM compatible endpoint\nQwen model per deployment config]
-    Model -->|Model output| Worker
-    Worker -->|Store result or error| Task
+    subgraph ACCESS[Request access]
+        APIM[Optional API management]
+    end
 
-    Client -->|GET /status/{task_id}| API
-    API -->|Read current status and result| Task
-    API -->|queued / processing / done / failed| Client
+    subgraph RUNTIME[Kubernetes runtime on AKS or GKE]
+        API[Rust async API - port 5000]
+        TASKS[(Redis task records)]
+        QUEUE[(Redis work queue - ocr_tasks)]
+        WORKER[Python worker with GLM OCR]
+        MODEL[vLLM compatible model API]
+        KEDA[KEDA autoscaler]
+        GPU[GPU node pool]
 
-    MCP[Optional MCP server\nparse_document] -->|Submit and poll| API
-    MCP -->|Markdown and optional layout| Assistant[AI assistant / MCP client]
+        API -->|Save file and task status| TASKS
+        API -->|Queue task ID| QUEUE
+        QUEUE -->|Worker claims task| WORKER
+        TASKS -->|Worker reads document| WORKER
+        WORKER -->|Layout and OCR requests| MODEL
+        MODEL -->|Model output| WORKER
+        WORKER -->|Write result or error| TASKS
+        KEDA -. reads queue depth .-> QUEUE
+        KEDA -. scales worker replicas .-> WORKER
+        GPU -. provides compute .-> MODEL
+    end
+
+    CLIENT -->|Upload PDF or image| APIM
+    APIM --> API
+    CLIENT -. direct local request .-> API
+    API -->|Return task ID| CLIENT
+    CLIENT -->|Poll task status| API
+    API -->|Read task result| TASKS
+    API -->|Return status and result| CLIENT
+    MCP -->|Submit document and poll status| API
+    MCP -->|Return Markdown and optional layout| ASSISTANT
+
+    classDef client fill:#eaf2ff,stroke:#2563eb,color:#172554,stroke-width:1.5px
+    classDef service fill:#f3e8ff,stroke:#9333ea,color:#3b0764,stroke-width:1.5px
+    classDef store fill:#ecfdf5,stroke:#059669,color:#064e3b,stroke-width:1.5px
+    classDef platform fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:1.5px
+    class CLIENT,ASSISTANT,MCP client
+    class API,WORKER,MODEL service
+    class TASKS,QUEUE store
+    class APIM,KEDA,GPU platform
 ```
 
 ```mermaid
 sequenceDiagram
-    participant U as Client
-    participant A as Rust_API
+    participant C as Client
+    participant G as Rust API
     participant R as Redis
-    participant W as OCR_worker
-    participant M as Model_service
+    participant W as OCR worker
+    participant V as Model API
 
-    U->>A: Upload a document
-    A->>R: Store queued task and file data
-    A->>R: Add task ID to ocr_tasks queue
-    A-->>U: Return task ID
-    W->>R: Claim task and read file data
+    C->>G: Upload document
+    G->>R: Save task and document
+    G->>R: Add task ID to work queue
+    G-->>C: Return task ID
+    W->>R: Claim task and read document
     W->>R: Mark task as processing
-    W->>M: Send layout and OCR requests
-    M-->>W: Return model output
-    W->>R: Store result or error and final status
-    loop While the task is active
-        U->>A: Request task status
-        A->>R: Read task state
-        A-->>U: Return status and result when ready
-    end
-```
-
-### Hosting and scaling view
-
-```mermaid
-flowchart TB
-    subgraph Cluster[AKS or GKE Kubernetes cluster]
-        API[Rust upload API]
-        Redis[(Redis task state and queue)]
-        Worker[Python GLM-OCR worker]
-        Model[vLLM inference service]
-        KEDA[KEDA scaler]
-        API --> Redis
-        Redis --> Worker
-        Worker --> Model
-        KEDA -. monitors queue depth .-> Redis
-        KEDA -. scales worker replicas .-> Worker
-    end
-    User[Client or MCP server] --> API
-    Model -. GPU node pool .- GPU[GPU capacity]
+    W->>V: Send OCR request
+    V-->>W: Return recognized content
+    W->>R: Save final status and result
+    C->>G: Poll task status
+    G->>R: Read task record
+    G-->>C: Return status or completed result
 ```
 
 The main asynchronous route is `POST /process` → Redis → worker → model endpoint → Redis → `GET /status/{task_id}`. A queued task does not get OCR results until the worker and compatible model endpoint are running. The Kubernetes examples place the worker and model on GPU-capable nodes; KEDA can scale workers using queue depth.
@@ -94,10 +104,10 @@ The model name varies by deployment: the week 5/6 Azure manifests configure `Qwe
 
 ```mermaid
 flowchart LR
-    Client[Client] -->|Base64 JSON: POST /process or /process-stream| Gateway[Standalone Rust document gateway\nport 3000]
-    Gateway -->|Direct inference request| Model[vLLM compatible endpoint]
-    Model --> Gateway
-    Gateway -->|JSON response or SSE events| Client
+    CLIENT[Client] -->|Base64 document request| GATEWAY[Standalone Rust gateway - port 3000]
+    GATEWAY -->|Direct inference request| MODEL[vLLM compatible model API]
+    MODEL -->|Recognized content| GATEWAY
+    GATEWAY -->|JSON result or event stream| CLIENT
 ```
 
 ## Repository layout
