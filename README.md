@@ -42,26 +42,25 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    actor U as User or client
-    participant A as Rust API
+    participant U as Client
+    participant A as Rust_API
     participant R as Redis
-    participant W as Python worker
-    participant M as vLLM model endpoint
+    participant W as OCR_worker
+    participant M as Model_service
 
-    U->>A: POST /process with multipart file
-    A->>R: HSET task:<id> with queued status and file
-    A->>R: LPUSH task ID to ocr_tasks
-    A-->>U: 202 Accepted with task_id
-    W->>R: BRPOP task ID; read task hash
-    W->>R: Set status to processing
-    W->>W: Decode file and stage it in /dev/shm
-    W->>M: GLM-OCR sends layout/recognition requests
-    M-->>W: OCR/model output
-    W->>R: Store done status and result (or failed status and error)
-    loop Until complete or failed
-        U->>A: GET /status/{task_id}
-        A->>R: Read task hash
-        A-->>U: Current status and result when ready
+    U->>A: Upload a document
+    A->>R: Store queued task and file data
+    A->>R: Add task ID to ocr_tasks queue
+    A-->>U: Return task ID
+    W->>R: Claim task and read file data
+    W->>R: Mark task as processing
+    W->>M: Send layout and OCR requests
+    M-->>W: Return model output
+    W->>R: Store result or error and final status
+    loop While the task is active
+        U->>A: Request task status
+        A->>R: Read task state
+        A-->>U: Return status and result when ready
     end
 ```
 
